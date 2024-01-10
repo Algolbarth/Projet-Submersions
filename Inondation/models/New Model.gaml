@@ -3,6 +3,7 @@ model model3
 global {
 	bool verbose <- false;  // passer à true pour tracer les déplacements des agents
 	map type_building <- ["house"::1, "office"::2, "school"::3, "refuge"::4, "shopping"::5];  // types de bâtiments
+	float lane_width <- 0.7; 
     int nb_people <- 100;  // À réduire pour débugger
     int nb_people_saved <- 0;
 	int min_work_start <- 8;  // Les heures données ici correspondent au déclenchement du comportement. Compter 1h supplémentaire pour que l'agent se déplace
