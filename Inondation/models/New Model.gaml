@@ -1,13 +1,12 @@
 model model3
 
-// Hello world
-
 global {
 	bool verbose <- false;  // passer à true pour tracer les déplacements des agents
 	map type_building <- ["house"::1, "office"::2, "school"::3, "refuge"::4, "shopping"::5];  // types de bâtiments
+	float seed <- 42.0;
 	float lane_width <- 0.7;
 	float traffic_light_interval parameter: 'Traffic light interval' init: 60#s;
-    int nb_people <- 100;  // À réduire pour débugger
+    int nb_people <- 0;  // À réduire pour débugger
     int nb_people_saved <- 0;
 	int min_work_start <- 8;  // Les heures données ici correspondent au déclenchement du comportement. Compter 1h supplémentaire pour que l'agent se déplace
 	int max_work_start <- 9;
@@ -19,12 +18,12 @@ global {
 	int max_school_end <- 16;
 	int alert_hour <- 10;
 	bool alert <- false; //pas d'inondation pour l'instant
-	float step <- 1 #mn; //un cycle toutes les minutes
+	float step <- 1 #m; //un cycle toutes les minutes
     
     file roads_shapefile <- file("../includes/batz/routes_batz.shp"); // fichier gis pour les routes
     file nodes_shapefile <- file("../includes/batz/nodes.shp");
     file buildings_shapefile <- file("../includes/batz/buildings.shp"); // fichier gis pour les bâtiments
-	geometry shape <- envelope(roads_shapefile);  // Défoinition de la taille du monde sur les routes
+	geometry shape <- envelope(roads_shapefile) + 50;  // Définition de la taille du monde sur les routes
     
     graph the_graph;
 	list<intersection> non_deadend_nodes;
@@ -46,7 +45,6 @@ global {
 			if self=road(0){
 				write self.source_node;
 			}
-			
 		}
 		
 		create intersection from: nodes_shapefile
@@ -62,6 +60,8 @@ global {
 		ask intersection {
 			do initialize;
 		}
+		
+		create car number: 1;
 		
 	    create building from: buildings_shapefile{ //Import des bâtiments, sans type initialement; NB: il y a un warning ici, certains bâtiments ne peuvent être chargés; à ingorer
 	    	type <- -1;
@@ -386,9 +386,10 @@ species people skills: [driving] {
 }
 
 species road skills:[road_skill] {
+	rgb color <- #white;
 	string oneway;
     aspect default {
-    	draw shape color: #black;
+    	draw shape color: color end_arrow: 1;
     }
 }
 
@@ -477,8 +478,8 @@ species intersection skills: [intersection_skill] {
 }
 
 species vehicle skills: [driving] {
-	rgb color <- rnd_color(255);
-	list<people> passagers;
+	rgb color <- #red;
+	//list<people> passagers;
 	
 	init {
 		location <- one_of(non_deadend_nodes).location;
@@ -538,21 +539,22 @@ species car parent: vehicle {
 	}
 }
 
-experiment main_experiment type: gui {
+experiment city type: gui {
 	parameter "Heures avant inondation :" var: alert_hour ;
 	parameter "Nombre d'habitants :" var: nb_people ;
 	
-    output {
+    output synchronized: true {
     	// Affichage de taux "en temps réel"
 	    monitor "Current hour" value: "hour: " + string(int(cycle/60)) + " minute: " + string(cycle mod 60);
 	    monitor "Inondation" value: alert;
 	    monitor "Personnes sauvées" value: nb_people_saved;
 	    
-	    display map {
+	    display map type: 3d background: #gray {
 	        species road;
 	        species building;
 	        species people;
 	        species intersection aspect: base;
+	        species car aspect: base;
 	    }
     }
 }
