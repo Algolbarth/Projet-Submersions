@@ -7,6 +7,7 @@ global {
 	float lane_width <- 0.7;
 	float traffic_light_interval parameter: 'Traffic light interval' init: 60#s;
     int nb_people <- 0;  // À réduire pour débugger
+    int nb_car <- 1;
     int nb_people_saved <- 0;
 	int min_work_start <- 8;  // Les heures données ici correspondent au déclenchement du comportement. Compter 1h supplémentaire pour que l'agent se déplace
 	int max_work_start <- 9;
@@ -61,7 +62,7 @@ global {
 			do initialize;
 		}
 		
-		create car number: 1;
+		create car number: nb_car;
 		
 	    create building from: buildings_shapefile{ //Import des bâtiments, sans type initialement; NB: il y a un warning ici, certains bâtiments ne peuvent être chargés; à ingorer
 	    	type <- -1;
