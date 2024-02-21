@@ -1,5 +1,4 @@
 /**
- * test
 * Name: Following Paths
 * Description: Vehicles moving between two intersection using the same path.
 			   Note that all vehicles slow down when reaching the end of the path, because at that point they don't know which road to choose next,
