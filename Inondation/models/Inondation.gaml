@@ -1,4 +1,7 @@
-model model3
+model Inondation
+
+import "Building.gaml"
+import "Road.gaml"
 
 global {
 	bool verbose <- false;  // passer à true pour tracer les déplacements des agents
@@ -6,8 +9,8 @@ global {
 	float seed <- 42.0;
 	float lane_width <- 0.7;
 	float traffic_light_interval parameter: 'Traffic light interval' init: 60#s;
-    int nb_people <- 0;  // À réduire pour débugger
-    int nb_car <- 1;
+    int nb_people <- 10;  // À réduire pour débugger
+    int nb_car <- 0;
     int nb_people_saved <- 0;
 	int min_work_start <- 8;  // Les heures données ici correspondent au déclenchement du comportement. Compter 1h supplémentaire pour que l'agent se déplace
 	int max_work_start <- 9;
@@ -62,9 +65,7 @@ global {
 			do initialize;
 		}
 		
-		create car number: nb_car;
-		
-	    create building from: buildings_shapefile{ //Import des bâtiments, sans type initialement; NB: il y a un warning ici, certains bâtiments ne peuvent être chargés; à ingorer
+		create building from: buildings_shapefile{ //Import des bâtiments, sans type initialement; NB: il y a un warning ici, certains bâtiments ne peuvent être chargés; à ingorer
 	    	type <- -1;
 	    }
 	    int number_of_buildings <- length(building);
@@ -144,7 +145,7 @@ global {
 			}
 		}
 	    
-	    loop p over: people where (each.isAdult = false){  // Attribution des écoles
+	    loop p over: people where (!each.isAdult){  // Attribution des écoles
 	    	if p.school=nil{
 		    	ask p{
 		    		self.school <- any(building where (each.type=type_building["school"]));
@@ -191,6 +192,68 @@ global {
     reflex end_simulation when: false {  // Bloquer la simulation quand tout le monde a été contaminé. Ne pas hésiter à s'arrêter avant.
     	do pause;
     }
+}
+
+species vehicle skills: [driving] {
+	rgb color <- #red;
+	//list<people> passagers;
+	
+	init {
+		location <- one_of(non_deadend_nodes).location;
+		right_side_driving <- true;
+	}
+	
+	point compute_position {
+		// Shifts the position of the vehicle perpendicularly to the road,
+		// in order to visualize different lanes
+		if (current_road != nil) {
+			float dist <- (road(current_road).num_lanes - current_lane - mean(range(num_lanes_occupied - 1)) - 0.5) * lane_width;
+			if violating_oneway {
+				dist <- -dist;
+			}
+		 	point shift_pt <- {cos(heading + 90) * dist, sin(heading + 90) * dist};	
+		
+			return location + shift_pt;
+		} else {
+			return {0, 0};
+		}
+	}
+	
+	reflex relocate when: next_road = nil and distance_to_current_target = 0.0 {
+		do unregister;
+		location <- one_of(non_deadend_nodes).location;
+	}
+	
+	reflex commute {
+		do drive_random graph: the_graph;
+	}
+	
+	aspect base {
+		if (current_road != nil) {
+			point pos <- compute_position();
+				
+			draw rectangle(vehicle_length, lane_width * num_lanes_occupied) 
+				at: pos color: color rotate: heading border: #black;
+			draw triangle(lane_width * num_lanes_occupied) 
+				at: pos color: #white rotate: heading + 90 border: #black;
+		}
+	}
+}
+
+species car parent: vehicle {
+	init {
+		vehicle_length <- 3.8 #m;
+		num_lanes_occupied <- 2;
+		max_speed <- (60 + rnd(10)) #km / #h;
+				
+		proba_block_node <- 0.0;
+		proba_respect_priorities <- 1.0;
+		proba_respect_stops <- [1.0];
+		proba_use_linked_road <- 0.0;
+
+		lane_change_limit <- 2;			
+		linked_lane_limit <- 0;
+	}
 }
 
 species people skills: [driving] {
@@ -386,160 +449,6 @@ species people skills: [driving] {
     }
 }
 
-species road skills:[road_skill] {
-	rgb color <- #white;
-	string oneway;
-    aspect default {
-    	draw shape color: color end_arrow: 1;
-    }
-}
-
-species building {
-	int type;
-    aspect default {
-    	draw shape color: type=1?#grey:(type=2?#blue:(type=3?#yellow:(type=4?#red:#cyan))) border: #black;
-    }
-}
-
-species intersection skills: [intersection_skill] {
-	rgb color;
-	bool is_traffic_signal;
-	float time_to_change <- 30#s;
-	float counter <- rnd(time_to_change);
-	list<road> ways1;
-	list<road> ways2;
-	bool is_green;
-	rgb color_fire;
-
-	action initialize {
-		if (is_traffic_signal) {
-			do compute_crossing;
-			stop << [];
-			if (flip(0.5)) {
-				do to_green;
-			} else {
-				do to_red;
-			}
-		}
-	}
-
-	action compute_crossing {
-		if (length(roads_in) >= 2) {
-			road rd0 <- road(roads_in[0]);
-			list<point> pts <- rd0.shape.points;
-			float ref_angle <- last(pts) direction_to rd0.location;
-			loop rd over: roads_in {
-				list<point> pts2 <- road(rd).shape.points;
-				float angle_dest <- last(pts2) direction_to rd.location;
-				float ang <- abs(angle_dest - ref_angle);
-				if (ang > 45 and ang < 135) or (ang > 225 and ang < 315) {
-					ways2 << road(rd);
-				}
-			}
-		}
-
-		loop rd over: roads_in {
-			if not (rd in ways2) {
-				ways1 << road(rd);
-			}
-		}
-	}
-
-	action to_green {
-		stop[0] <- ways2;
-		color_fire <- #green;
-		is_green <- true;
-	}
-
-	action to_red {
-		stop[0] <- ways1;
-		color_fire <- #red;
-		is_green <- false;
-	}
-
-	reflex dynamic_node when: is_traffic_signal {
-		counter <- counter + step;
-		if (counter >= time_to_change) {
-			counter <- 0.0;
-			if is_green {
-				do to_red;
-			} else {
-				do to_green;
-			}
-		}
-	}
-
-	aspect base {
-		if (is_traffic_signal) {
-			draw circle(1) color: color_fire;
-		} else {
-			draw circle(1) color: color;
-		}
-	}
-}
-
-species vehicle skills: [driving] {
-	rgb color <- #red;
-	//list<people> passagers;
-	
-	init {
-		location <- one_of(non_deadend_nodes).location;
-		right_side_driving <- true;
-	}
-	
-	point compute_position {
-		// Shifts the position of the vehicle perpendicularly to the road,
-		// in order to visualize different lanes
-		if (current_road != nil) {
-			float dist <- (road(current_road).num_lanes - current_lane - mean(range(num_lanes_occupied - 1)) - 0.5) * lane_width;
-			if violating_oneway {
-				dist <- -dist;
-			}
-		 	point shift_pt <- {cos(heading + 90) * dist, sin(heading + 90) * dist};	
-		
-			return location + shift_pt;
-		} else {
-			return {0, 0};
-		}
-	}
-	
-	reflex relocate when: next_road = nil and distance_to_current_target = 0.0 {
-		do unregister;
-		location <- one_of(non_deadend_nodes).location;
-	}
-	
-	reflex commute {
-		do drive_random graph: the_graph;
-	}
-	
-	aspect base {
-		if (current_road != nil) {
-			point pos <- compute_position();
-				
-			draw rectangle(vehicle_length, lane_width * num_lanes_occupied) 
-				at: pos color: color rotate: heading border: #black;
-			draw triangle(lane_width * num_lanes_occupied) 
-				at: pos color: #white rotate: heading + 90 border: #black;
-		}
-	}
-}
-
-species car parent: vehicle {
-	init {
-		vehicle_length <- 3.8 #m;
-		num_lanes_occupied <- 2;
-		max_speed <- (60 + rnd(10)) #km / #h;
-				
-		proba_block_node <- 0.0;
-		proba_respect_priorities <- 1.0;
-		proba_respect_stops <- [1.0];
-		proba_use_linked_road <- 0.0;
-
-		lane_change_limit <- 2;			
-		linked_lane_limit <- 0;
-	}
-}
-
 experiment city type: gui {
 	parameter "Heures avant inondation :" var: alert_hour ;
 	parameter "Nombre d'habitants :" var: nb_people ;
@@ -550,7 +459,7 @@ experiment city type: gui {
 	    monitor "Inondation" value: alert;
 	    monitor "Personnes sauvées" value: nb_people_saved;
 	    
-	    display map type: 3d background: #gray {
+	    display map type: 2d background: #gray {
 	        species road;
 	        species building;
 	        species people;
