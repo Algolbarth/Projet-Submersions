@@ -84,3 +84,11 @@ species intersection skills: [intersection_skill] {
 		}
 	}
 }
+
+species building {
+	int type;
+	intersection node;
+    aspect default {
+    	draw shape color: type=1?#grey:(type=2?#blue:(type=3?#yellow:(type=4?#red:#cyan))) border: #black;
+    }
+}

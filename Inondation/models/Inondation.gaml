@@ -1,6 +1,5 @@
 model Inondation
 
-import "Building.gaml"
 import "Road.gaml"
 
 global {
@@ -10,7 +9,7 @@ global {
 	float lane_width <- 0.7;
 	float traffic_light_interval parameter: 'Traffic light interval' init: 60#s;
     int nb_people <- 0;
-    int nb_car <- 1000;
+    int nb_car <- 100;
     int nb_people_saved <- 0;
 	int min_work_start <- 8;
 	int max_work_start <- 9;
@@ -58,7 +57,7 @@ global {
 		ask intersection {
 			do initialize;
 		}
-		create vehicle_following_path number: nb_car;
+		create car number:nb_car;
 		
 		create building from: buildings_shapefile{ //Import des bâtiments, sans type initialement; NB: il y a un warning ici, certains bâtiments ne peuvent être chargés; à ingorer
 	    	type <- -1;
@@ -81,7 +80,21 @@ global {
 	    	type <- type_building["refuge"];
 	    }
 	    refuge <- any(building where(each.type=type_building["refuge"]));
-	    
+	    list<float> distances <- [];
+	   	loop b over: building {
+	   		intersection node <- any(non_deadend_nodes);
+			float best_distance <- 10000.0;
+			loop n over: intersection {
+				float distance <- sqrt(square(abs(b.location.x - n.location.x)).area + square(abs(b.location.y - n.location.y)).area);
+				if distance < best_distance {
+					best_distance <- distance;
+					node <- n;
+				}
+			}
+			b.node<- node;
+			add item:best_distance to: distances;
+	   	}
+		
 	    // nb_people <- 2*length(building where (each.type = type_building["house"]));  // Calibrer le nombre de personnes au nombre de maisons.
 	    create people number: nb_people { // Taux d'enfants et de patients pour lesquels les symptômes seront sévères
 	        isAdult <- flip(0.25);
@@ -189,18 +202,28 @@ global {
     }
 }
 
-species vehicle_following_path parent: base_vehicle {
+species car parent: vehicle {
 	init {
 		vehicle_length <- 0.5 #m;
 		max_speed <- (60 + rnd(10)) #km / #h;
 	}
 
 	reflex select_next_path when: current_path = nil {
-		intersection start_node <- any(non_deadend_nodes);
-		intersection finish_node <- any(non_deadend_nodes);
-		do compute_path graph: the_graph nodes: [start_node, finish_node];
+		building start_building <- any(building);
+		building finish_building <- refuge;
+		
 		if verbose {
-			write "from " + start_node + " to " + finish_node;
+			write "Building : from [" + int(start_building.location.x) + ":" + int(start_building.location.y) + "] to [" + int(finish_building.location.x) + ":" + int(finish_building.location.y) + "]";
+		}
+		
+		intersection start_node <- start_building.node;
+		intersection finish_node <- finish_building.node;
+		
+		do compute_path graph: the_graph nodes: [start_node, finish_node];
+		
+		if verbose {
+			write "Nodes : from [" + int(start_node.location.x) + ":" + int(start_node.location.y) + "] to [" + int(finish_node.location.x) + ":" + int(finish_node.location.y) + "]";
+			write "----------";
 		}
 	}
 	
@@ -209,7 +232,7 @@ species vehicle_following_path parent: base_vehicle {
 	}
 }
 
-species base_vehicle skills: [driving] {
+species vehicle skills: [driving] {
 	rgb color <- rgb('green');
 	graph road_graph;
 	
@@ -449,7 +472,7 @@ experiment city type: gui {
 	        species building;
 	        species people;
 	        species intersection aspect: base;
-	        species vehicle_following_path aspect: base;
+	        species car aspect: base;
 	    }
     }
 }
