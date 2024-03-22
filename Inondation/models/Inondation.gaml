@@ -4,15 +4,15 @@ import "Building.gaml"
 import "Road.gaml"
 
 global {
-	bool verbose <- false;  // passer à true pour tracer les déplacements des agents
-	map type_building <- ["house"::1, "office"::2, "school"::3, "refuge"::4, "shopping"::5];  // types de bâtiments
+	bool verbose <- false;
+	map type_building <- ["house"::1, "office"::2, "school"::3, "refuge"::4, "shopping"::5];
 	float seed <- 42.0;
 	float lane_width <- 0.7;
 	float traffic_light_interval parameter: 'Traffic light interval' init: 60#s;
-    int nb_people <- 10;  // À réduire pour débugger
-    int nb_car <- 0;
+    int nb_people <- 0;
+    int nb_car <- 1000;
     int nb_people_saved <- 0;
-	int min_work_start <- 8;  // Les heures données ici correspondent au déclenchement du comportement. Compter 1h supplémentaire pour que l'agent se déplace
+	int min_work_start <- 8;
 	int max_work_start <- 9;
 	int min_school_start <- 7;
 	int max_school_start <- 8;
@@ -21,13 +21,13 @@ global {
 	int min_school_end <- 15; 
 	int max_school_end <- 16;
 	int alert_hour <- 10;
-	bool alert <- false; //pas d'inondation pour l'instant
-	float step <- 1 #m; //un cycle toutes les minutes
+	bool alert <- false;
+	float step <- 1 #m;
     
-    file roads_shapefile <- file("../includes/batz/routes_batz.shp"); // fichier gis pour les routes
+    file roads_shapefile <- file("../includes/batz/routes_batz.shp");
     file nodes_shapefile <- file("../includes/batz/nodes.shp");
-    file buildings_shapefile <- file("../includes/batz/buildings.shp"); // fichier gis pour les bâtiments
-	geometry shape <- envelope(roads_shapefile) + 50;  // Définition de la taille du monde sur les routes
+    file buildings_shapefile <- file("../includes/batz/buildings.shp");
+	geometry shape <- envelope(roads_shapefile) + 50;  
     
     graph the_graph;
 	list<intersection> non_deadend_nodes;
@@ -35,10 +35,8 @@ global {
 	building refuge;
 
     init {
-    	//Création du monde
 	    create road from: roads_shapefile with: [num_lanes::int(read("lanes"))] {
 			num_lanes <- rnd(4, 6);
-			// Create another road in the opposite direction
 			create road {
 				num_lanes <- myself.num_lanes;
 				shape <- polyline(reverse(myself.shape.points));
@@ -64,6 +62,7 @@ global {
 		ask intersection {
 			do initialize;
 		}
+		create vehicle_following_path number: nb_car;
 		
 		create building from: buildings_shapefile{ //Import des bâtiments, sans type initialement; NB: il y a un warning ici, certains bâtiments ne peuvent être chargés; à ingorer
 	    	type <- -1;
@@ -194,20 +193,34 @@ global {
     }
 }
 
-species vehicle skills: [driving] {
-	rgb color <- #red;
-	//list<people> passagers;
-	
+species vehicle_following_path parent: base_vehicle {
 	init {
-		location <- one_of(non_deadend_nodes).location;
-		right_side_driving <- true;
+		vehicle_length <- 0.5 #m;
+		max_speed <- (60 + rnd(10)) #km / #h;
+		write self.location;
 	}
+
+	reflex select_next_path when: current_path = nil {
+		list<intersection> dst_nodes <- [any(non_deadend_nodes), intersection[4391]];
+		do compute_path graph: the_graph nodes: dst_nodes;
+		write current_path;
+	}
+	
+	reflex commute when: current_path != nil {
+		do drive;
+	}
+}
+
+species base_vehicle skills: [driving] {
+	rgb color <- rnd_color(255);
+	graph road_graph;
 	
 	point compute_position {
 		// Shifts the position of the vehicle perpendicularly to the road,
 		// in order to visualize different lanes
 		if (current_road != nil) {
-			float dist <- (road(current_road).num_lanes - current_lane - mean(range(num_lanes_occupied - 1)) - 0.5) * lane_width;
+			float dist <- (road(current_road).num_lanes - current_lane -
+				mean(range(num_lanes_occupied - 1)) - 0.5) * lane_width;
 			if violating_oneway {
 				dist <- -dist;
 			}
@@ -219,15 +232,6 @@ species vehicle skills: [driving] {
 		}
 	}
 	
-	reflex relocate when: next_road = nil and distance_to_current_target = 0.0 {
-		do unregister;
-		location <- one_of(non_deadend_nodes).location;
-	}
-	
-	reflex commute {
-		do drive_random graph: the_graph;
-	}
-	
 	aspect base {
 		if (current_road != nil) {
 			point pos <- compute_position();
@@ -237,22 +241,6 @@ species vehicle skills: [driving] {
 			draw triangle(lane_width * num_lanes_occupied) 
 				at: pos color: #white rotate: heading + 90 border: #black;
 		}
-	}
-}
-
-species car parent: vehicle {
-	init {
-		vehicle_length <- 3.8 #m;
-		num_lanes_occupied <- 2;
-		max_speed <- (60 + rnd(10)) #km / #h;
-				
-		proba_block_node <- 0.0;
-		proba_respect_priorities <- 1.0;
-		proba_respect_stops <- [1.0];
-		proba_use_linked_road <- 0.0;
-
-		lane_change_limit <- 2;			
-		linked_lane_limit <- 0;
 	}
 }
 
@@ -454,7 +442,6 @@ experiment city type: gui {
 	parameter "Nombre d'habitants :" var: nb_people ;
 	
     output synchronized: true {
-    	// Affichage de taux "en temps réel"
 	    monitor "Current hour" value: "hour: " + string(int(cycle/60)) + " minute: " + string(cycle mod 60);
 	    monitor "Inondation" value: alert;
 	    monitor "Personnes sauvées" value: nb_people_saved;
@@ -464,7 +451,7 @@ experiment city type: gui {
 	        species building;
 	        species people;
 	        species intersection aspect: base;
-	        species car aspect: base;
+	        species vehicle_following_path aspect: base;
 	    }
     }
 }
