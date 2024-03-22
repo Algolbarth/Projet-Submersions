@@ -4,7 +4,7 @@ import "Building.gaml"
 import "Road.gaml"
 
 global {
-	bool verbose <- false;
+	bool verbose <- true;
 	map type_building <- ["house"::1, "office"::2, "school"::3, "refuge"::4, "shopping"::5];
 	float seed <- 42.0;
 	float lane_width <- 0.7;
@@ -44,9 +44,6 @@ global {
 				linked_road <- myself;
 				myself.linked_road <- self;
 			}
-			if self=road(0){
-				write self.source_node;
-			}
 		}
 		
 		create intersection from: nodes_shapefile
@@ -56,7 +53,6 @@ global {
 		
 		map edge_weights <- road as_map (each::each.shape.perimeter);
 		the_graph <- as_driving_graph(road, intersection) with_weights edge_weights;
-		write road(0).source_node;
 		non_deadend_nodes <- intersection where !empty(each.roads_out);
 		
 		ask intersection {
@@ -197,13 +193,15 @@ species vehicle_following_path parent: base_vehicle {
 	init {
 		vehicle_length <- 0.5 #m;
 		max_speed <- (60 + rnd(10)) #km / #h;
-		write self.location;
 	}
 
 	reflex select_next_path when: current_path = nil {
-		list<intersection> dst_nodes <- [any(non_deadend_nodes), intersection[4391]];
-		do compute_path graph: the_graph nodes: dst_nodes;
-		write current_path;
+		intersection start_node <- any(non_deadend_nodes);
+		intersection finish_node <- any(non_deadend_nodes);
+		do compute_path graph: the_graph nodes: [start_node, finish_node];
+		if verbose {
+			write "from " + start_node + " to " + finish_node;
+		}
 	}
 	
 	reflex commute when: current_path != nil {
@@ -212,7 +210,7 @@ species vehicle_following_path parent: base_vehicle {
 }
 
 species base_vehicle skills: [driving] {
-	rgb color <- rnd_color(255);
+	rgb color <- rgb('green');
 	graph road_graph;
 	
 	point compute_position {
