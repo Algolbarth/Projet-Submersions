@@ -8,8 +8,7 @@ global {
 	float seed <- 42.0;
 	float lane_width <- 0.7;
 	float traffic_light_interval parameter: 'Traffic light interval' init: 60#s;
-    int nb_people <- 0;
-    int nb_car <- 100;
+    int nb_people <- 1;
     int nb_people_saved <- 0;
 	int min_work_start <- 8;
 	int max_work_start <- 9;
@@ -21,7 +20,7 @@ global {
 	int max_school_end <- 16;
 	int alert_hour <- 10;
 	bool alert <- false;
-	float step <- 1 #m;
+	float step <- 2 #m;
     
     file roads_shapefile <- file("../includes/batz/routes_batz.shp");
     file nodes_shapefile <- file("../includes/batz/nodes.shp");
@@ -53,38 +52,42 @@ global {
 		map edge_weights <- road as_map (each::each.shape.perimeter);
 		the_graph <- as_driving_graph(road, intersection) with_weights edge_weights;
 		non_deadend_nodes <- intersection where !empty(each.roads_out);
-		
 		ask intersection {
 			do initialize;
 		}
-		create car number:nb_car;
 		
-		create building from: buildings_shapefile{ //Import des bâtiments, sans type initialement; NB: il y a un warning ici, certains bâtiments ne peuvent être chargés; à ingorer
+		create building from: buildings_shapefile{
 	    	type <- -1;
 	    }
 	    int number_of_buildings <- length(building);
 	    ask round(0.66*number_of_buildings) among building{  // habitations
 	    	type <- type_building["house"];
+	    	color <- #white;
 	    }
 	    ask round(0.18*number_of_buildings) among building where (each.type=-1){  // bureaux
 	    	type <- type_building["office"];
+	    	color <- #blue;
 	    }
 	    ask round(0.02*number_of_buildings) among building where (each.type=-1){  // écoles
 	    	type <- type_building["school"];
+	    	color <- #yellow;
 	    }
 	    ask round(0.13*number_of_buildings) among building where (each.type=-1){  // magasins/lieux de loisirs
 	    	type <- type_building["shopping"];
+	    	color <- #orange;
 	    }
 	    list<building> remaining <- (building where (each.type=-1));
 	    ask 1 among remaining {
 	    	type <- type_building["refuge"];
+	    	color <- #red;
 	    }
 	    refuge <- any(building where(each.type=type_building["refuge"]));
+	    
 	    list<float> distances <- [];
 	   	loop b over: building {
 	   		intersection node <- any(non_deadend_nodes);
 			float best_distance <- 10000.0;
-			loop n over: intersection {
+			loop n over: non_deadend_nodes {
 				float distance <- sqrt(square(abs(b.location.x - n.location.x)).area + square(abs(b.location.y - n.location.y)).area);
 				if distance < best_distance {
 					best_distance <- distance;
@@ -97,7 +100,7 @@ global {
 		
 	    // nb_people <- 2*length(building where (each.type = type_building["house"]));  // Calibrer le nombre de personnes au nombre de maisons.
 	    create people number: nb_people { // Taux d'enfants et de patients pour lesquels les symptômes seront sévères
-	        isAdult <- flip(0.25);
+	        //isAdult <- flip(0.25);
 	    }
 	    
 	    loop p over: people where (each.isAdult){ // Création de couples
@@ -139,12 +142,14 @@ global {
 				if length(empty_houses) != 0{
 					ask p{
 						self.home <- any(empty_houses);
+						self.the_current <- self.home;
 						self.location <- self.home.location;
 					}
 					building chosen_home <- p.home;
 					loop r over: p.relatives{
 						ask r{
 							self.home <- chosen_home;
+							self.the_current <- self.home;
 							self.location <- self.home.location;
 						}
 					}
@@ -208,23 +213,22 @@ species car parent: vehicle {
 		max_speed <- (60 + rnd(10)) #km / #h;
 	}
 
-	reflex select_next_path when: current_path = nil {
-		building start_building <- any(building);
-		building finish_building <- refuge;
-		
-		if verbose {
-			write "Building : from [" + int(start_building.location.x) + ":" + int(start_building.location.y) + "] to [" + int(finish_building.location.x) + ":" + int(finish_building.location.y) + "]";
-		}
-		
+	action move_to (building start_building, building finish_building) {		
 		intersection start_node <- start_building.node;
 		intersection finish_node <- finish_building.node;
 		
 		do compute_path graph: the_graph nodes: [start_node, finish_node];
 		
 		if verbose {
+			write "Building : from [" + int(start_building.location.x) + ":" + int(start_building.location.y) + "] to [" + int(finish_building.location.x) + ":" + int(finish_building.location.y) + "]";
 			write "Nodes : from [" + int(start_node.location.x) + ":" + int(start_node.location.y) + "] to [" + int(finish_node.location.x) + ":" + int(finish_node.location.y) + "]";
+			write "Path : " + current_path;
 			write "----------";
 		}
+	}
+	
+	reflex select_next_path when: current_path = nil {
+		do move_to(any(building), refuge);
 	}
 	
 	reflex commute when: current_path != nil {
@@ -268,10 +272,13 @@ species vehicle skills: [driving] {
 species people skills: [driving] {
 	string mon_origine <- "home"; // Pour le verbose
 	string ma_destination <- "home"; // Pour le verbose
+	building the_current <- nil;
+	building the_origin <- nil;
+	building the_target <- nil;
+	
 	building school <- nil;
 	building work <- nil;
 	building home <- nil;
-	point the_target <- nil;
 	bool isAdult <- true;
 	list<building> shoppings ;
 	int start_work ;
@@ -280,8 +287,12 @@ species people skills: [driving] {
 	int end_school  ;
 	list<people> relatives; // Cellule familiale
     bool goingToStore;  // Indique si l'agent compte se rendre à un magasin/Loisir ce jour-là
-    int storeCtr<- -1;  // Variable d'état pour le magasin
-    float mySpeed <- 20000.0;  // 20 km/h
+    int storeCtr <- -1;  // Variable d'état pour le magasin
+	
+	init {
+		vehicle_length <- 0.5 #m;
+		max_speed <- (60 + rnd(10)) #km / #h;
+	}
 	
 	reflex move when: (
 		the_target != nil
@@ -289,10 +300,36 @@ species people skills: [driving] {
 		if verbose{
 			write(string(self) + " going from " + mon_origine + " to " + ma_destination +" at time: " + cycle mod 24);
 		}
-		//Activer le on: the_graph pour forcer les agents à suivre les routes
-		do goto target: the_target speed:mySpeed;// on: the_graph; 
-		if location = the_target {
-			the_target <- nil;
+		if the_origin != the_target {
+			do move_to (the_origin, the_target);
+		}
+		the_target <- nil;
+	}
+    
+    action move_to (building start_building, building finish_building) {		
+		intersection start_node <- start_building.node;
+		intersection finish_node <- finish_building.node;
+		
+		do compute_path graph: the_graph nodes: [start_node, finish_node];
+		
+		if verbose {
+			//write "Building : from [" + int(start_building.location.x) + ":" + int(start_building.location.y) + "] to [" + int(finish_building.location.x) + ":" + int(finish_building.location.y) + "]";
+			write "Nodes : from [" + int(start_node.location.x) + ":" + int(start_node.location.y) + "] to [" + int(finish_node.location.x) + ":" + int(finish_node.location.y) + "]";
+			write "Path : " + current_path;
+			write "----------";
+		}
+	}
+    
+    reflex commute when: current_path != nil {
+		do drive;
+	}
+	
+	reflex finish when: (the_target != nil and the_target.node.location = self.location) {
+		the_current <- the_target;
+		self.location <- the_current.location;
+		the_target <- nil;
+		if verbose {
+			write "Bien arrivé";
 		}
 	}
 	
@@ -306,7 +343,8 @@ species people skills: [driving] {
 		}
 		mon_origine <- ma_destination;
 		ma_destination <- "school";
-		the_target <- school.location;
+		the_origin <- the_target;
+		the_target <- school;
 	}
 	
 	reflex goToWork when:(
@@ -316,14 +354,15 @@ species people skills: [driving] {
 		and self.location != refuge.location
 		and cycle mod 24 >= start_work and
 		cycle mod 24 <= end_work and
-		location != work.location
+		the_current != work
 	){
 		mon_origine <- ma_destination;
 		ma_destination <- "work";
 		if verbose{
 			write("Go to work");
 		}
-		the_target <- work.location;
+		the_origin <- the_current;
+		the_target <- work;
 	}
 	
 	reflex goFromWork when:(
@@ -332,16 +371,17 @@ species people skills: [driving] {
 		and cycle mod 24 = end_work // Retour du travail, vers l'école ou la maison
 		and self.location != refuge.location
 	){
+		the_origin <- work;
 		mon_origine <- "work";
 		if verbose{
 			write("Go from work: " + end_work);
 		}
 		if school=nil{
-			the_target <- home.location;
+			the_target <- home;
 			ma_destination <- "home";
 		}
 		else{
-			the_target <- school.location;
+			the_target <- school;
 			ma_destination <- "school";
 		}
 	}
@@ -380,7 +420,8 @@ species people skills: [driving] {
 		}
 		mon_origine <- "school";
 		ma_destination <- "home";
-		the_target <- home.location;
+		the_origin <- school;
+		the_target <- home;
 	}
 	
 	reflex decideToGoToStore when: (
@@ -406,7 +447,8 @@ species people skills: [driving] {
 		if verbose{
 			write("Go to store");
 		}
-		the_target <- any(shoppings).location;
+		the_origin <- home;
+		the_target <- any(shoppings);
 	}
 
 	reflex InStore when: (
@@ -427,7 +469,8 @@ species people skills: [driving] {
 		}
 		mon_origine <- "store";
 		ma_destination <- "home";
-		the_target <- home.location;
+		the_origin <- the_current;
+		the_target <- home;
 		storeCtr <- -1;
 		goingToStore <- false;
 	}
@@ -440,7 +483,8 @@ species people skills: [driving] {
 		}
 		mon_origine <- "n'importe où";
 		ma_destination <- "refuge";
-		the_target <- refuge.location;
+		the_origin <- the_current;
+		the_target <- refuge;
 	}
 	
 	reflex inRefuge when : (
@@ -452,9 +496,36 @@ species people skills: [driving] {
 		nb_people_saved <- nb_people_saved + 1;
 		do die ;
 	}
+	
+	point compute_position {
+		// Shifts the position of the vehicle perpendicularly to the road,
+		// in order to visualize different lanes
+		if (current_road != nil) {
+			float dist <- (road(current_road).num_lanes - current_lane -
+				mean(range(num_lanes_occupied - 1)) - 0.5) * lane_width;
+			if violating_oneway {
+				dist <- -dist;
+			}
+		 	point shift_pt <- {cos(heading + 90) * dist, sin(heading + 90) * dist};	
+		
+			return location + shift_pt;
+		} else {
+			return {0, 0};
+		}
+	}
 
     aspect default {
-    	draw circle(15) color: #green;
+    	if (current_road != nil) {
+			point pos <- compute_position();
+				
+			draw rectangle(vehicle_length, lane_width * num_lanes_occupied) 
+				at: pos color: #green rotate: heading border: #black;
+			draw triangle(lane_width * num_lanes_occupied) 
+				at: pos color: #white rotate: heading + 90 border: #black;
+		}
+		else {
+			draw circle(15) color: #green;
+		}
     }
 }
 

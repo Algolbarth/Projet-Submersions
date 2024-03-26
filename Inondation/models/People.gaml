@@ -1,6 +1,6 @@
 model People
 
-import "Building.gaml"
+import "Road.gaml"
 
 species people skills: [driving] {
 	string mon_origine <- "home"; // Pour le verbose
