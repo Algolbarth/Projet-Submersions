@@ -300,20 +300,34 @@ species people skills: [driving] {
 	reflex move when: (
 		the_target != nil
 	) {
+		write "------";
+    	write self.location;
 		if the_origin != the_target {
 			do move_to (the_origin, the_target);
 			if verbose{
-				//write(string(self) + " going from " + mon_origine + " to " + ma_destination + " at time: " + cycle mod 24);
+				write(string(self) + " going from " + mon_origine + " to " + ma_destination + " at time: " + cycle mod 24);
 			}
 		}
+    	write self.location;
+		write "------";
+		
 		//the_target <- nil;
 	}
     
-    action move_to (building start_building, building finish_building) {		
+    action move_to (building start_building, building finish_building) {
+    	write "0----------";
+    	write self.location;		
 		intersection start_node <- start_building.node;
 		intersection finish_node <- finish_building.node;
+    	write "1----------";
+    	write self.location;		
 		
+		// Le problème vient du compute_path ; il semble bien que la méthode modifie la position de l'agent. En particulier, vous verrez
+		// dans la species vehicule que le path n'est recalculé *que* quand le current_path est nul. Je vous recommande de vous appuyer
+		// sur cette condition, ou en tous cas de ne recalculer le path que lorsque cela est nécessaire. 
 		do compute_path graph: the_graph nodes: [start_node, finish_node];
+    	write "2----------";
+    	write self.location;		
 		
 		if verbose {
 			write "Building : from [" + int(start_building.location.x) + ":" + int(start_building.location.y) + "] to [" + int(finish_building.location.x) + ":" + int(finish_building.location.y) + "]";
@@ -335,10 +349,12 @@ species people skills: [driving] {
 	}
     
     reflex commute when: current_path != nil {
+    	write "------";
     	write self.location;
 		do drive;
     	write "Je conduis";
     	write self.location;
+    	write "------";
 	}
 	
 	reflex finish when: (the_target != nil and the_target.node.location = self.location) {
@@ -372,6 +388,8 @@ species people skills: [driving] {
 		and (cycle*step)/60 mod 24 >= start_work
 		and (cycle*step)/60 mod 24 <= end_work
 	){
+		write "------";
+    	write self.location;
 		mon_origine <- ma_destination;
 		ma_destination <- "work";
 		if verbose{
@@ -379,6 +397,8 @@ species people skills: [driving] {
 		}
 		the_origin <- the_current;
 		the_target <- work;
+    	write self.location;
+		write "------";
 	}
 	
 	reflex goFromWork when:(
