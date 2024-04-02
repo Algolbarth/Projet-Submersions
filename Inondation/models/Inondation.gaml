@@ -6,7 +6,7 @@ global {
 	bool verbose <- true;
 	map type_building <- ["house"::1, "office"::2, "school"::3, "refuge"::4, "shopping"::5];
 	float seed <- 42.0;
-	float lane_width <- 0.7;
+	float lane_width <- 1.0;
 	float traffic_light_interval parameter: 'Traffic light interval' init: 60#s;
     int nb_people <- 1;
     int nb_people_saved <- 0;
@@ -181,8 +181,9 @@ global {
 	    loop p over: people where (each.isAdult = true){  // attribution du travail & des magasins/lieux de loisirs
 	    	ask p{
 	    		self.work <- any(building where (each.type=type_building["office"]));
-	    		self.start_work <- max([min_work_start, start_school]) +
-					rnd (max_work_start - max([min_work_start, start_school]));
+/*	    		self.start_work <- max([min_work_start, start_school]) +
+					rnd (max_work_start - max([min_work_start, start_school]));*/
+	    		self.start_work <- 0;
 				int min_time;
 				if end_school !=0{
 					min_time <- min([min_work_end, end_school]);
@@ -212,7 +213,7 @@ global {
 
 species car parent: vehicle {
 	init {
-		vehicle_length <- 0.5 #m;
+		vehicle_length <- 20 #m;
 		max_speed <- (60 + rnd(10)) #km / #h;
 	}
 
@@ -553,14 +554,15 @@ species people skills: [driving] {
     aspect default {
     	if (current_road != nil) {
 			point pos <- compute_position();
-				
-			draw rectangle(vehicle_length, lane_width * num_lanes_occupied) 
+				//Clairement un problème d'échelle.
+			draw rectangle(vehicle_length*20, lane_width * num_lanes_occupied*7) 
 				at: pos color: #green rotate: heading border: #black;
-			draw triangle(lane_width * num_lanes_occupied) 
-				at: pos color: #white rotate: heading + 90 border: #black;
+			draw triangle(lane_width * num_lanes_occupied*7) 
+				at: pos+{-7,0} color: #white rotate: heading + 90 border: #black;
 		}
 		else {
 			draw circle(15) color: #green;
+			
 		}
     }
 }
