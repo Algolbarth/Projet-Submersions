@@ -20,7 +20,7 @@ global {
 	int max_school_end <- 16;
 	int alert_hour <- 10;
 	bool alert <- false;
-	float step <- 2 #m;
+	float step <- 1 #m;
     
     file roads_shapefile <- file("../includes/batz/routes_batz.shp");
     file nodes_shapefile <- file("../includes/batz/nodes.shp");
@@ -99,7 +99,10 @@ global {
 	   	}
 		
 	    // nb_people <- 2*length(building where (each.type = type_building["house"]));  // Calibrer le nombre de personnes au nombre de maisons.
-	    create people number: nb_people { // Taux d'enfants et de patients pour lesquels les symptômes seront sévères
+	    // Taux d'enfants et de patients pour lesquels les symptômes seront sévères
+	    create people number: nb_people { 
+	        //delete childs for decrease mortality
+	        //not sure about that
 	        //isAdult <- flip(0.25);
 	    }
 	    
@@ -297,13 +300,13 @@ species people skills: [driving] {
 	reflex move when: (
 		the_target != nil
 	) {
-		if verbose{
-			write(string(self) + " going from " + mon_origine + " to " + ma_destination +" at time: " + cycle mod 24);
-		}
 		if the_origin != the_target {
 			do move_to (the_origin, the_target);
+			if verbose{
+				//write(string(self) + " going from " + mon_origine + " to " + ma_destination + " at time: " + cycle mod 24);
+			}
 		}
-		the_target <- nil;
+		//the_target <- nil;
 	}
     
     action move_to (building start_building, building finish_building) {		
@@ -313,15 +316,29 @@ species people skills: [driving] {
 		do compute_path graph: the_graph nodes: [start_node, finish_node];
 		
 		if verbose {
-			//write "Building : from [" + int(start_building.location.x) + ":" + int(start_building.location.y) + "] to [" + int(finish_building.location.x) + ":" + int(finish_building.location.y) + "]";
+			write "Building : from [" + int(start_building.location.x) + ":" + int(start_building.location.y) + "] to [" + int(finish_building.location.x) + ":" + int(finish_building.location.y) + "]";
 			write "Nodes : from [" + int(start_node.location.x) + ":" + int(start_node.location.y) + "] to [" + int(finish_node.location.x) + ":" + int(finish_node.location.y) + "]";
 			write "Path : " + current_path;
+			write "road : " + current_road;
+			write "position : " + string(location);
 			write "----------";
+		}
+	}
+	
+	reflex check_location when:verbose {
+		if (the_current = work) {
+			write 'Work';
+		}
+		else if (the_current = home) {
+			write 'Home';
 		}
 	}
     
     reflex commute when: current_path != nil {
+    	write self.location;
 		do drive;
+    	write "Je conduis";
+    	write self.location;
 	}
 	
 	reflex finish when: (the_target != nil and the_target.node.location = self.location) {
@@ -335,11 +352,11 @@ species people skills: [driving] {
 	
 	reflex goToSchool when: (
 		school!=nil
-		and cycle mod 24 = start_school // Départ à l'école
+		and (cycle*step)/60 mod 24 = start_school // Départ à l'école
 		and self.location != refuge.location
 	) {
 		if verbose{
-			write("Go to school:  " + cycle mod 24);
+			write("Go to school:  " + (cycle*step)/60 mod 24);
 		}
 		mon_origine <- ma_destination;
 		ma_destination <- "school";
@@ -352,9 +369,8 @@ species people skills: [driving] {
 		and isAdult
 		and !alert
 		and self.location != refuge.location
-		and cycle mod 24 >= start_work and
-		cycle mod 24 <= end_work and
-		the_current != work
+		and (cycle*step)/60 mod 24 >= start_work
+		and (cycle*step)/60 mod 24 <= end_work
 	){
 		mon_origine <- ma_destination;
 		ma_destination <- "work";
@@ -368,7 +384,7 @@ species people skills: [driving] {
 	reflex goFromWork when:(
 		isAdult
 		and !alert
-		and cycle mod 24 = end_work // Retour du travail, vers l'école ou la maison
+		and (cycle*step)/60 mod 24 = end_work // Retour du travail, vers l'école ou la maison
 		and self.location != refuge.location
 	){
 		the_origin <- work;
@@ -411,12 +427,12 @@ species people skills: [driving] {
 	reflex goFromSchool when:(
 		(school!=nil)
 		and !alert
-		and (cycle mod 24 >= end_school)
+		and ((cycle*step)/60 mod 24 >= end_school)
 		and checkRelativesSchool() // Revenir de l'école
 		and self.location != refuge.location
 	){
 		if verbose{
-			write(string(self) + " going from school at " + cycle mod 24);
+			write(string(self) + " going from school at " + (cycle*step)/60 mod 24);
 		}
 		mon_origine <- "school";
 		ma_destination <- "home";
@@ -426,10 +442,10 @@ species people skills: [driving] {
 	
 	reflex decideToGoToStore when: (
 		isAdult
-		and cycle mod 24 = 0 // Tous les jours, décider d'aller à un magasin/loisir ou non
+		and (cycle*step)/60 mod 24 = 0 // Tous les jours, décider d'aller à un magasin/loisir ou non
 	) {
 		if verbose{
-			write("Decide to go to store");
+			write("Decide to go to store after work");
 		}
 		goingToStore <- flip(0.4);
 	}
@@ -439,7 +455,7 @@ species people skills: [driving] {
 		and !alert
 		and goingToStore
 		and location = home.location
-		and cycle mod 24 >=end_work // Aller à un magasin/loisir ou non
+		and (cycle*step)/60 mod 24 >=end_work // Aller à un magasin/loisir ou non
 		and self.location != refuge.location
 	) {
 		mon_origine <- "home";
@@ -456,13 +472,13 @@ species people skills: [driving] {
 		and isInShopping()
 		and storeCtr = -1 // Tous les jours, décider d'aller à un magasin/loisir ou non
 	) {
-		storeCtr <- cycle mod 24;
+		storeCtr <- int((cycle*step)/60) mod 24;
 	}
 	
 	reflex goFromStore when: (
 		isInShopping()
 		and !alert
-		and cycle mod 24 > (storeCtr+1) mod 24
+		and (cycle*step)/60 mod 24 > (storeCtr+1) mod 24
 	) { // Repartir
 		if verbose{
 			write("Go from store");
@@ -534,7 +550,7 @@ experiment city type: gui {
 	parameter "Nombre d'habitants :" var: nb_people ;
 	
     output synchronized: true {
-	    monitor "Current hour" value: "hour: " + string(int(cycle/60)) + " minute: " + string(cycle mod 60);
+	    monitor "Current hour" value: "hour: " + string(int((cycle*step)/60)) + " minute: " + string((cycle*step) mod 60);
 	    monitor "Inondation" value: alert;
 	    monitor "Personnes sauvées" value: nb_people_saved;
 	    
